@@ -339,3 +339,5 @@ def activate():
                      os.environ.get('SENTRY_DOC_VARIANT', 'self'))
     globs['extensions'] = list(globs.get('extensions') or ()) + ['sentryext']
     globs['primary_domain'] = 'std'
+    globs['exclude_patterns'] = list(globs.get('exclude_patterns')
+                                     or ()) + ['_sentryext']

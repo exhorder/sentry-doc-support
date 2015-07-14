@@ -10,7 +10,7 @@ import sys
 import subprocess
 
 
-_ref_target_re = re.compile(r'^\.\.\s+([^:]+):')
+_ref_target_re = re.compile(r'^\.\.\s+_([^:]+):')
 _doc_ref_re = re.compile(r':doc:`([^`]+)`')
 _explicit_target_re = re.compile(r'.+?\s+\<(.*?)\>')
 

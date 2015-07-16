@@ -7,6 +7,7 @@ some of the more frustrating issues for federated doc support.
 import os
 import re
 import sys
+import errno
 import subprocess
 
 
@@ -90,15 +91,19 @@ def main():
     for filename in find_modified_docs():
         if valid_ref_prefixes is None:
             valid_ref_prefixes = get_valid_ref_prefixes()
-        with open(filename) as f:
-            mistakes = find_mistakes(f, valid_ref_prefixes)
-            for lineno, line, msg in mistakes:
-                warn('%s (%s:%s)' % (
-                    msg,
-                    filename,
-                    lineno,
-                ))
-                warnings += 1
+        try:
+            with open(filename) as f:
+                mistakes = find_mistakes(f, valid_ref_prefixes)
+                for lineno, line, msg in mistakes:
+                    warn('%s (%s:%s)' % (
+                        msg,
+                        filename,
+                        lineno,
+                    ))
+                    warnings += 1
+        except IOError as e:
+            if e.errno != errno.ENOENT:
+                raise
 
     if warnings > 0:
         sys.exit(1)

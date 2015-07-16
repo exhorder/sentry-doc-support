@@ -212,7 +212,7 @@ class SphinxBuilderMixin(object):
         for dirpath, dirnames, filenames in os.walk(self.srcdir):
             dirnames[:] = [x for x in dirnames if x[:1] not in '_.']
             for filename in filenames:
-                if filename == 'wizards.json':
+                if filename == 'sentry-doc-config.json':
                     full_path = os.path.join(self.srcdir, dirpath)
                     base_path = full_path[len(self.srcdir):].strip('/\\') \
                         .replace(os.path.sep, '/')
@@ -270,7 +270,7 @@ class SphinxBuilderMixin(object):
         return u'\n\n'.join(rv)
 
     def __write_wizard(self, data, base_path):
-        for uid, framework_data in data.get('configurations', {}).iteritems():
+        for uid, framework_data in data.get('wizards', {}).iteritems():
             body = self.__build_wizard_section(base_path,
                                                framework_data['snippets'])
 

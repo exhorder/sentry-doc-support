@@ -154,10 +154,13 @@ def preprocess_source(app, docname, source):
 
 
 def builder_inited(app):
-    app.env.sentry_referenced_docs = {}
+    # XXX: this currently means thigns only stay referenced after a
+    # deletion of a link after a clean build :(
+    if not hasattr(app.env, 'sentry_referenced_docs'):
+        app.env.sentry_referenced_docs = {}
 
 
-def remove_irrelevant_trees(app, doctree):
+def track_references(app, doctree):
     docname = app.env.temp_data['docname']
     rd = app.env.sentry_referenced_docs
     for toctreenode in doctree.traverse(addnodes.toctree):
@@ -322,7 +325,7 @@ def setup(app):
     app.connect('builder-inited', builder_inited)
     app.connect('html-page-context', html_page_context)
     app.connect('source-read', preprocess_source)
-    app.connect('doctree-read', remove_irrelevant_trees)
+    app.connect('doctree-read', track_references)
     app.add_builder(SentryStandaloneHTMLBuilder)
     app.add_builder(SentryDirectoryHTMLBuilder)
     app.add_config_value('sentry_doc_variant', None, 'env')

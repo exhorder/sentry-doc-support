@@ -9,6 +9,7 @@ from docutils.io import StringOutput
 from docutils.nodes import document, section
 
 from sphinx import addnodes
+from sphinx.environment import url_re
 from sphinx.domains import Domain
 from sphinx.util.osutil import relative_uri
 from sphinx.builders.html import StandaloneHTMLBuilder, DirectoryHTMLBuilder
@@ -19,6 +20,114 @@ _docedition_re = re.compile(r'^..\s+sentry:docedition::\s*(.*?)$')
 
 
 EXTERNAL_DOCS_URL = 'https://docs.getsentry.com/hosted/'
+
+
+def resolve_toctree(env, docname, builder, toctree, collapse=False):
+    def _toctree_add_classes(node):
+        for subnode in node.children:
+            if isinstance(subnode, (addnodes.compact_paragraph,
+                                    nodes.list_item,
+                                    nodes.bullet_list)):
+                _toctree_add_classes(subnode)
+            elif isinstance(subnode, nodes.reference):
+                # for <a>, identify which entries point to the current
+                # document and therefore may not be collapsed
+                if subnode['refuri'] == docname:
+                    list_item = subnode.parent.parent
+                    if not subnode['anchorname']:
+
+                        # give the whole branch a 'current' class
+                        # (useful for styling it differently)
+                        branchnode = subnode
+                        while branchnode:
+                            branchnode['classes'].append('current')
+                            branchnode = branchnode.parent
+                    # mark the list_item as "on current page"
+                    if subnode.parent.parent.get('iscurrent'):
+                        # but only if it's not already done
+                        return
+                    while subnode:
+                        subnode['iscurrent'] = True
+                        subnode = subnode.parent
+
+                    # Now mark all siblings as well and also give the
+                    # innermost expansion an extra class.
+                    list_item['classes'].append('active')
+                    for node in list_item.parent.children:
+                        node['classes'].append('relevant')
+
+    def _entries_from_toctree(toctreenode, parents, subtree=False):
+        refs = [(e[0], e[1]) for e in toctreenode['entries']]
+        entries = []
+        for (title, ref) in refs:
+            refdoc = None
+            if url_re.match(ref):
+                raise NotImplementedError('Not going to implement this (url)')
+            elif ref == 'env':
+                raise NotImplementedError('Not going to implement this (env)')
+            else:
+                if ref in parents:
+                    env.warn(ref, 'circular toctree references '
+                             'detected, ignoring: %s <- %s' %
+                             (ref, ' <- '.join(parents)))
+                    continue
+                refdoc = ref
+                toc = env.tocs[ref].deepcopy()
+                env.process_only_nodes(toc, builder, ref)
+                if title and toc.children and len(toc.children) == 1:
+                    child = toc.children[0]
+                    for refnode in child.traverse(nodes.reference):
+                        if refnode['refuri'] == ref and \
+                           not refnode['anchorname']:
+                            refnode.children = [nodes.Text(title)]
+            if not toc.children:
+                # empty toc means: no titles will show up in the toctree
+                env.warn_node(
+                    'toctree contains reference to document %r that '
+                    'doesn\'t have a title: no link will be generated'
+                    % ref, toctreenode)
+
+            # delete everything but the toplevel title(s)
+            # and toctrees
+            for toplevel in toc:
+                # nodes with length 1 don't have any children anyway
+                if len(toplevel) > 1:
+                    subtrees = toplevel.traverse(addnodes.toctree)
+                    toplevel[1][:] = subtrees
+
+            # resolve all sub-toctrees
+            for subtocnode in toc.traverse(addnodes.toctree):
+                i = subtocnode.parent.index(subtocnode) + 1
+                for item in _entries_from_toctree(subtocnode, [refdoc] +
+                                                  parents, subtree=True):
+                    subtocnode.parent.insert(i, item)
+                    i += 1
+                subtocnode.parent.remove(subtocnode)
+
+            entries.extend(toc.children)
+        if not subtree:
+            ret = nodes.bullet_list()
+            ret += entries
+            return [ret]
+        return entries
+
+    tocentries = _entries_from_toctree(toctree, [])
+    if not tocentries:
+        return None
+
+    newnode = addnodes.compact_paragraph('', '')
+    newnode.extend(tocentries)
+    newnode['toctree'] = True
+
+    _toctree_add_classes(newnode)
+
+    for refnode in newnode.traverse(nodes.reference):
+        if not url_re.match(refnode['refuri']):
+            refnode.parent.parent['classes'].append('ref-' + refnode['refuri'])
+            refnode['refuri'] = builder.get_relative_uri(
+                docname, refnode['refuri']) + refnode['anchorname']
+
+    return newnode
 
 
 def make_link_builder(app, base_page):
@@ -40,35 +149,72 @@ def make_link_builder(app, base_page):
 
 
 def html_page_context(app, pagename, templatename, context, doctree):
-    rendered_toc = get_rendered_toctree(app.builder, pagename)
-    context['full_toc'] = rendered_toc
+    # toc_parts = get_rendered_toctree(app.builder, pagename)
+    # context['full_toc'] = toc_parts['main']
+
+    toc_parts = get_rendered_toctree(app.builder, pagename, collapse=False,
+                                     split_toc={'clients': ['clients/index']})
+    context['total_toc'] = toc_parts['main']
+    context['client_toc'] = toc_parts['clients']
 
     context['link_to_edition'] = make_link_builder(app, pagename)
 
     def render_sitemap():
-        return get_rendered_toctree(app.builder, 'sitemap', collapse=False)
+        return get_rendered_toctree(app.builder, 'sitemap',
+                                    collapse=False)['main']
     context['render_sitemap'] = render_sitemap
 
     context['sentry_doc_variant'] = app.env.config.sentry_doc_variant
 
 
-def get_rendered_toctree(builder, docname, prune=False, collapse=True):
-    fulltoc = build_full_toctree(builder, docname, prune=prune,
-                                 collapse=collapse)
-    rendered_toc = builder.render_partial(fulltoc)['fragment']
-    return rendered_toc
+def extract_toc(fulltoc, selectors):
+    entries = []
+
+    for refnode in fulltoc.traverse(nodes.reference):
+        container = refnode.parent.parent
+        if any(cls[:4] == 'ref-' and cls[4:] in selectors
+               for cls in container['classes']):
+            parent = container.parent
+
+            new_parent = parent.deepcopy()
+            del new_parent.children[:]
+            new_parent += container
+            entries.append(new_parent)
+
+            parent.remove(container)
+            if not parent.children:
+                parent.parent.remove(parent)
+
+    newnode = addnodes.compact_paragraph('', '')
+    newnode.extend(entries)
+    newnode['toctree'] = True
+
+    return newnode
 
 
-def build_full_toctree(builder, docname, prune=False, collapse=True):
+def get_rendered_toctree(builder, docname, collapse=True, split_toc=None):
+    fulltoc = build_full_toctree(builder, docname, collapse=collapse)
+
+    rv = {}
+
+    def _render_toc(node):
+        return builder.render_partial(node)['fragment']
+
+    if split_toc:
+        for key, selectors in split_toc.iteritems():
+            rv[key] = _render_toc(extract_toc(fulltoc, selectors))
+
+    rv['main'] = _render_toc(fulltoc)
+    return rv
+
+
+def build_full_toctree(builder, docname, collapse=True):
     env = builder.env
     doctree = env.get_doctree(env.config.master_doc)
     toctrees = []
     for toctreenode in doctree.traverse(addnodes.toctree):
-        toctrees.append(env.resolve_toctree(docname, builder, toctreenode,
-                                            collapse=collapse,
-                                            titles_only=True,
-                                            includehidden=True,
-                                            prune=prune))
+        toctrees.append(resolve_toctree(env, docname, builder, toctreenode,
+                                        collapse=collapse))
     if not toctrees:
         return None
     result = toctrees[0]

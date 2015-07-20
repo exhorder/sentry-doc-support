@@ -152,10 +152,10 @@ def html_page_context(app, pagename, templatename, context, doctree):
     # toc_parts = get_rendered_toctree(app.builder, pagename)
     # context['full_toc'] = toc_parts['main']
 
-    toc_parts = get_rendered_toctree(app.builder, pagename, collapse=False,
-                                     split_toc={'clients': ['clients/index']})
-    context['total_toc'] = toc_parts['main']
-    context['client_toc'] = toc_parts['clients']
+    def build_toc(split_toc=None):
+        return get_rendered_toctree(app.builder, pagename, collapse=False,
+                                    split_toc=split_toc)
+    context['build_toc'] = build_toc
 
     context['link_to_edition'] = make_link_builder(app, pagename)
 

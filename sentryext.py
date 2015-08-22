@@ -3,15 +3,18 @@ import os
 import sys
 import json
 import posixpath
+from itertools import chain
 from urlparse import urljoin
 from docutils import nodes
 from docutils.io import StringOutput
 from docutils.nodes import document, section
+from docutils.statemachine import ViewList
 
 from sphinx import addnodes
 from sphinx.environment import url_re
 from sphinx.domains import Domain
 from sphinx.util.osutil import relative_uri
+from sphinx.util.compat import Directive
 from sphinx.builders.html import StandaloneHTMLBuilder, DirectoryHTMLBuilder
 
 
@@ -238,10 +241,123 @@ def parse_rst(state, content_offset, doc):
     return node.children
 
 
+def find_cached_api_json(source, filename):
+    directory = os.path.dirname(source)
+    while 1:
+        cache_folder = os.path.join(directory, '_apicache')
+        if os.path.isdir(cache_folder):
+            fn = os.path.join(cache_folder, filename)
+            if os.path.isfile(fn):
+                return fn
+        new_dir = os.path.dirname(directory)
+        if new_dir == directory:
+            break
+        directory = new_dir
+    raise Exception('Cached API JSON info not found (%s)' % filename)
+
+
+class ApiEndpointDirective(Directive):
+    has_content = False
+    required_arguments = 1
+    optional_arguments = 0
+    final_argument_whitespace = False
+
+    def get_endpoint_info(self):
+        ident = self.arguments[0].encode('ascii', 'replace')
+        with open(find_cached_api_json(self.state.document.settings._source,
+                                       'endpoints/%s.json' % ident)) as f:
+            return json.load(f)
+
+    def run(self):
+        doc = ViewList()
+        info = self.get_endpoint_info()
+
+        for line in info['doc'].splitlines():
+            doc.append(line, '')
+        doc.append('', '')
+        doc.append('* **Path**: ``%s``' % info['path'], '')
+        doc.append('* **Method**: ``%s``' % info['method'], '')
+
+        return parse_rst(self.state, self.content_offset, doc)
+
+
+class ApiScenarioDirective(Directive):
+    has_content = False
+    required_arguments = 1
+    optional_arguments = 0
+    final_argument_whitespace = False
+
+    def get_scenario_info(self):
+        ident = self.arguments[0].encode('ascii', 'replace')
+        with open(find_cached_api_json(self.state.document.settings._source,
+                                       'scenarios/%s.json' % ident)) as f:
+            return json.load(f)
+
+    def iter_body(self, data):
+        if data is None:
+            return
+        for line in json.dumps(data, indent=2).splitlines():
+            yield line.rstrip()
+
+    def write_request(self, doc, request_info):
+        doc.append('.. class:: api-request', '')
+        doc.append('', '')
+        doc.append('.. sourcecode:: http', '')
+        doc.append('', '')
+        doc.append(' %s %s HTTP/1.1' % (
+            request_info['method'],
+            request_info['path'],
+        ), '')
+
+        special_headers = [
+            ('Authorization', 'Basic ___ENCODED_API_KEY___'),
+            ('Host', 'app.getsentry.com'),
+        ]
+
+        for key, value in chain(special_headers,
+                                sorted(request_info['headers'].items())):
+            doc.append(' %s: %s' % (key, value), '')
+        doc.append('', '')
+
+        for item in self.iter_body(request_info['data']):
+            doc.append(' ' + item, '')
+
+    def write_response(self, doc, response_info):
+        doc.append('.. class:: api-response', '')
+        doc.append('', '')
+        doc.append('.. sourcecode:: http', '')
+        doc.append('', '')
+        doc.append(' HTTP/1.1 %s %s' % (
+            response_info['status'],
+            response_info['reason'],
+        ), '')
+
+        for key, value in sorted(response_info['headers'].items()):
+            doc.append(' %s: %s' % (key.title(), value), '')
+        doc.append('', '')
+
+        for item in self.iter_body(response_info['data']):
+            doc.append(' ' + item, '')
+
+    def run(self):
+        doc = ViewList()
+        info = self.get_scenario_info()
+
+        for request in info['requests']:
+            self.write_request(doc, request['request'])
+            doc.append('', '')
+            self.write_response(doc, request['response'])
+            doc.append('', '')
+
+        return parse_rst(self.state, self.content_offset, doc)
+
+
 class SentryDomain(Domain):
     name = 'sentry'
     label = 'Sentry'
     directives = {
+        'api-endpoint': ApiEndpointDirective,
+        'api-scenario': ApiScenarioDirective,
     }
 
 

@@ -281,6 +281,31 @@ class ApiEndpointDirective(Directive):
         return parse_rst(self.state, self.content_offset, doc)
 
 
+class ApiEndpointsDirective(Directive):
+    has_content = False
+    required_arguments = 1
+    optional_arguments = 0
+    final_argument_whitespace = False
+
+    def get_endpoints_info_for_section(self):
+        section = self.arguments[0].encode('ascii', 'replace')
+        with open(find_cached_api_json(self.state.document.settings._source,
+                                       'sections.json')) as f:
+            rv = json.load(f)['sections'][section]['entries'].items()
+            rv.sort(key=lambda x: x[1].lower())
+            return rv
+
+    def run(self):
+        doc = ViewList()
+        endpoints = self.get_endpoints_info_for_section()
+
+        for endpoint, _ in endpoints:
+            doc.append('.. sentry:api-endpoint:: %s' % endpoint, '')
+            doc.append('', '')
+
+        return parse_rst(self.state, self.content_offset, doc)
+
+
 class ApiScenarioDirective(Directive):
     has_content = False
     required_arguments = 1
@@ -357,6 +382,7 @@ class SentryDomain(Domain):
     label = 'Sentry'
     directives = {
         'api-endpoint': ApiEndpointDirective,
+        'api-endpoints': ApiEndpointsDirective,
         'api-scenario': ApiScenarioDirective,
     }
 

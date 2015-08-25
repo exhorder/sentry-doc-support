@@ -241,69 +241,8 @@ def parse_rst(state, content_offset, doc):
     return node.children
 
 
-def find_cached_api_json(source, filename):
-    directory = os.path.dirname(source)
-    while 1:
-        cache_folder = os.path.join(directory, '_apicache')
-        if os.path.isdir(cache_folder):
-            fn = os.path.join(cache_folder, filename)
-            if os.path.isfile(fn):
-                return fn
-        new_dir = os.path.dirname(directory)
-        if new_dir == directory:
-            break
-        directory = new_dir
-    raise Exception('Cached API JSON info not found (%s)' % filename)
-
-
-class ApiEndpointDirective(Directive):
-    has_content = False
-    required_arguments = 1
-    optional_arguments = 0
-    final_argument_whitespace = False
-
-    def get_endpoint_info(self):
-        ident = self.arguments[0].encode('ascii', 'replace')
-        with open(find_cached_api_json(self.state.document.settings._source,
-                                       'endpoints/%s.json' % ident)) as f:
-            return json.load(f)
-
-    def run(self):
-        doc = ViewList()
-        info = self.get_endpoint_info()
-
-        for line in info['doc'].splitlines():
-            doc.append(line, '')
-        doc.append('', '')
-        doc.append('* **Path**: ``%s``' % info['path'], '')
-        doc.append('* **Method**: ``%s``' % info['method'], '')
-
-        return parse_rst(self.state, self.content_offset, doc)
-
-
-class ApiEndpointsDirective(Directive):
-    has_content = False
-    required_arguments = 1
-    optional_arguments = 0
-    final_argument_whitespace = False
-
-    def get_endpoints_info_for_section(self):
-        section = self.arguments[0].encode('ascii', 'replace')
-        with open(find_cached_api_json(self.state.document.settings._source,
-                                       'sections.json')) as f:
-            rv = json.load(f)['sections'][section]['entries'].items()
-            rv.sort(key=lambda x: x[1].lower())
-            return rv
-
-    def run(self):
-        doc = ViewList()
-        endpoints = self.get_endpoints_info_for_section()
-
-        for endpoint, _ in endpoints:
-            doc.append('.. sentry:api-endpoint:: %s' % endpoint, '')
-            doc.append('', '')
-
-        return parse_rst(self.state, self.content_offset, doc)
+def find_cached_api_json(env, filename):
+    return os.path.join(env.srcdir, '_apicache', filename)
 
 
 class ApiScenarioDirective(Directive):
@@ -314,7 +253,7 @@ class ApiScenarioDirective(Directive):
 
     def get_scenario_info(self):
         ident = self.arguments[0].encode('ascii', 'replace')
-        with open(find_cached_api_json(self.state.document.settings._source,
+        with open(find_cached_api_json(self.state.document.settings.env,
                                        'scenarios/%s.json' % ident)) as f:
             return json.load(f)
 
@@ -381,8 +320,6 @@ class SentryDomain(Domain):
     name = 'sentry'
     label = 'Sentry'
     directives = {
-        'api-endpoint': ApiEndpointDirective,
-        'api-endpoints': ApiEndpointsDirective,
         'api-scenario': ApiScenarioDirective,
     }
 

@@ -9,20 +9,41 @@ from docutils import nodes
 from docutils.io import StringOutput
 from docutils.nodes import document, section
 from docutils.statemachine import ViewList
+from docutils.parsers.rst import directives
 
 from sphinx import addnodes
 from sphinx.environment import url_re
-from sphinx.domains import Domain
+from sphinx.domains import Domain, ObjType
+from sphinx.directives import ObjectDescription
 from sphinx.util.osutil import relative_uri
 from sphinx.util.compat import Directive
+from sphinx.util.docfields import Field, TypedField
 from sphinx.builders.html import StandaloneHTMLBuilder, DirectoryHTMLBuilder
 
 
+_http_method_re = re.compile(r'^\s*:http-method:\s+(.*?)$(?m)')
+_http_path_re = re.compile(r'^\s*:http-path:\s+(.*?)$(?m)')
+
 _edition_re = re.compile(r'^(\s*)..\s+sentry:edition::\s*(.*?)$')
 _docedition_re = re.compile(r'^..\s+sentry:docedition::\s*(.*?)$')
+_url_var_re = re.compile(r'\{(.*?)\}')
 
 
 EXTERNAL_DOCS_URL = 'https://docs.getsentry.com/hosted/'
+API_BASE_URL = 'https://api.getsentry.com/'
+
+
+def iter_url_parts(path):
+    last = 0
+    for match in _url_var_re.finditer(path):
+        before = path[last:match.start()]
+        if before:
+            yield False, before
+        yield True, match.group(1)
+        last = match.end()
+    after = path[last:]
+    if after:
+        yield False, after
 
 
 def resolve_toctree(env, docname, builder, toctree, collapse=False):
@@ -245,6 +266,80 @@ def find_cached_api_json(env, filename):
     return os.path.join(env.srcdir, '_apicache', filename)
 
 
+def api_url_rule(text):
+    def add_url_thing(rv, value):
+        for is_var, part in iter_url_parts(value):
+            if is_var:
+                part = '{%s}' % part
+                node = nodes.emphasis(part, part)
+            else:
+                node = nodes.inline(part, part)
+            rv.append(node)
+    container = nodes.inline(classes=['url'])
+    domain_part = nodes.inline(classes=['domain', 'skip-latex'])
+    # add_url_thing(domain_part, API_BASE_URL.rstrip('/'))
+    container += domain_part
+    add_url_thing(container, text)
+    rv = nodes.inline(classes=['urlwrapper'])
+    rv += container
+    return rv
+
+
+class URLPathField(Field):
+
+    def make_entry(self, fieldarg, content):
+        text = u''.join(x.rawsource for x in content)
+        return fieldarg, api_url_rule(text)
+
+
+class ApiEndpointDirective(ObjectDescription):
+    option_spec = {
+        'noindex':      directives.flag
+    }
+    doc_field_types = [
+        Field('http_method', label='Method', has_arg=False,
+              names=('http-method',)),
+        URLPathField('http_path', label='Path', has_arg=False,
+                     names=('http-path',)),
+        TypedField('query_parameter', label='Query Parameters',
+                   names=('qparam', 'query-parameter'),
+                   typerolename='obj', typenames=('qparamtype',),
+                   can_collapse=True),
+        TypedField('path_parameter', label='Path Parameters',
+                   names=('pparam', 'path-parameter'),
+                   typerolename='obj', typenames=('pparamtype',),
+                   can_collapse=True),
+        TypedField('body_parameter', label='Parameters',
+                   names=('param', 'parameter'),
+                   typerolename='obj', typenames=('paramtype',),
+                   can_collapse=True),
+        Field('returnvalue', label='Returns', has_arg=False,
+              names=('returns', 'return')),
+        Field('returntype', label='Return type', has_arg=False,
+              names=('rtype',)),
+        Field('auth', label='Authentication', has_arg=False,
+              names=('auth',)),
+    ]
+
+    def needs_arglist(self):
+        return False
+
+    def handle_signature(self, sig, signode):
+        name = sig.strip()
+        fullname = name
+
+        content = '\n'.join(self.content)
+        method = _http_method_re.search(content)
+        path = _http_path_re.search(content)
+
+        if method and path:
+            prefix = method.group(1)
+            signode += addnodes.desc_type(prefix + ' ', prefix + ' ')
+            signode += api_url_rule(path.group(1))
+
+        return fullname
+
+
 class ApiScenarioDirective(Directive):
     has_content = False
     required_arguments = 1
@@ -257,10 +352,12 @@ class ApiScenarioDirective(Directive):
                                        'scenarios/%s.json' % ident)) as f:
             return json.load(f)
 
-    def iter_body(self, data):
+    def iter_body(self, data, is_json=True):
         if data is None:
             return
-        for line in json.dumps(data, indent=2).splitlines():
+        if is_json:
+            data = json.dumps(data, indent=2)
+        for line in data.splitlines():
             yield line.rstrip()
 
     def write_request(self, doc, request_info):
@@ -300,7 +397,8 @@ class ApiScenarioDirective(Directive):
             doc.append(' %s: %s' % (key.title(), value), '')
         doc.append('', '')
 
-        for item in self.iter_body(response_info['data']):
+        for item in self.iter_body(response_info['data'],
+                                   response_info['is_json']):
             doc.append(' ' + item, '')
 
     def run(self):
@@ -319,7 +417,12 @@ class ApiScenarioDirective(Directive):
 class SentryDomain(Domain):
     name = 'sentry'
     label = 'Sentry'
+    object_types = {
+        'api-endpoint': ObjType('api-endpoint', 'api-endpoint', 'obj'),
+        'type': ObjType('type', 'type', 'obj'),
+    }
     directives = {
+        'api-endpoint': ApiEndpointDirective,
         'api-scenario': ApiScenarioDirective,
     }
 

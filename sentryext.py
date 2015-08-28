@@ -292,6 +292,29 @@ class URLPathField(Field):
         return fieldarg, api_url_rule(text)
 
 
+class AuthField(Field):
+
+    def make_entry(self, fieldarg, content):
+        rv = []
+        flags = set(x.strip() for x in
+                    u''.join(x.rawsource for x in content).split(',')
+                    if x.strip())
+        if 'required' in flags:
+            rv.append('required')
+        elif 'optional' in flags:
+            rv.append('optional')
+        else:
+            rv.append('unauthenticated')
+
+        if 'user-context-needed' in flags:
+            rv.append('user context needed')
+
+        text = ', '.join(rv)
+        node = nodes.inline(text, text)
+
+        return fieldarg, node
+
+
 class ApiEndpointDirective(ObjectDescription):
     option_spec = {
         'noindex':      directives.flag
@@ -317,8 +340,8 @@ class ApiEndpointDirective(ObjectDescription):
               names=('returns', 'return')),
         Field('returntype', label='Return type', has_arg=False,
               names=('rtype',)),
-        Field('auth', label='Authentication', has_arg=False,
-              names=('auth',)),
+        AuthField('auth', label='Authentication', has_arg=False,
+                  names=('auth',)),
     ]
 
     def needs_arglist(self):

@@ -403,7 +403,8 @@ class ApiScenarioDirective(Directive):
             doc.append(' %s: %s' % (key, value), '')
         doc.append('', '')
 
-        for item in self.iter_body(request_info['data']):
+        for item in self.iter_body(request_info['data'],
+                                   request_info['is_json']):
             doc.append(' ' + item, '')
 
     def write_response(self, doc, response_info):

@@ -558,10 +558,15 @@ class SphinxBuilderMixin(object):
             from_, to, typ)
 
     def write_doc(self, docname, doctree):
-        if is_referenced(docname, self.app.env.sentry_referenced_docs):
-            return super(SphinxBuilderMixin, self).write_doc(docname, doctree)
-        else:
-            print 'skipping because unreferenced'
+        original_field_limit = self.docsettings.field_name_limit
+        try:
+            self.docsettings.field_name_limit = 120
+            if is_referenced(docname, self.app.env.sentry_referenced_docs):
+                return super(SphinxBuilderMixin, self).write_doc(docname, doctree)
+            else:
+                print 'skipping because unreferenced'
+        finally:
+            self.docsettings.field_name_limit = original_field_limit
 
     def __iter_wizard_files(self):
         for dirpath, dirnames, filenames in os.walk(self.srcdir):

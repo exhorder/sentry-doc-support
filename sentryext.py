@@ -569,7 +569,8 @@ class SphinxBuilderMixin(object):
             self.docsettings.field_name_limit = original_field_limit
 
     def __iter_wizard_files(self):
-        for dirpath, dirnames, filenames in os.walk(self.srcdir):
+        for dirpath, dirnames, filenames in os.walk(self.srcdir,
+                                                    followlinks=True):
             dirnames[:] = [x for x in dirnames if x[:1] not in '_.']
             for filename in filenames:
                 if filename == 'sentry-doc-config.json':
@@ -631,8 +632,12 @@ class SphinxBuilderMixin(object):
 
     def __write_wizard(self, data, base_path):
         for uid, framework_data in data.get('wizards', {}).iteritems():
-            body = self.__build_wizard_section(base_path,
-                                               framework_data['snippets'])
+            try:
+                body = self.__build_wizard_section(base_path,
+                                                   framework_data['snippets'])
+            except IOError as e:
+                print >> sys.stderr, 'Failed to build wizard "%s" (%s)' % (uid, e)
+                continue
 
             fn = os.path.join(self.outdir, '_wizards', '%s.json' % uid)
             try:

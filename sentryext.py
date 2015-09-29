@@ -568,7 +568,7 @@ class SphinxBuilderMixin(object):
         finally:
             self.docsettings.field_name_limit = original_field_limit
 
-    def __iter_wizard_files(self):
+    def __iter_platform_files(self):
         for dirpath, dirnames, filenames in os.walk(self.srcdir,
                                                     followlinks=True):
             dirnames[:] = [x for x in dirnames if x[:1] not in '_.']
@@ -630,62 +630,85 @@ class SphinxBuilderMixin(object):
 
         return u'\n\n'.join(rv)
 
-    def __write_wizard(self, data, base_path):
-        rv = []
+    def __process_platform(self, data, base_path):
+        rv = {}
 
-        for uid, framework_data in data.get('wizards', {}).iteritems():
+        for uid, platform_data in data.get('platforms', {}).iteritems():
             try:
                 body = self.__build_wizard_section(base_path,
-                                                   framework_data['snippets'])
+                                                   platform_data['wizard'])
             except IOError as e:
                 print >> sys.stderr, 'Failed to build wizard "%s" (%s)' % (uid, e)
                 continue
 
-            fn = os.path.join(self.outdir, '_wizards', '%s.json' % uid)
-            try:
-                os.makedirs(os.path.dirname(fn))
-            except OSError:
-                pass
-
-            doc_link = framework_data.get('doc_link')
+            doc_link = platform_data.get('doc_link')
             if doc_link is not None:
                 doc_link = urljoin(EXTERNAL_DOCS_URL,
                                    posixpath.join(base_path, doc_link))
-            with open(fn, 'w') as f:
-                data = {
-                    'name': framework_data.get('name') or uid.title(),
-                    'is_framework': framework_data.get('is_framework', False),
-                    'doc_link': doc_link,
-                    'client_lib': framework_data.get('client_lib'),
-                    'body': body
-                }
-                json.dump(data, f)
-                f.write('\n')
-                rv.append((uid, data))
+            rv[uid] = {
+                'name': platform_data.get('name') or uid.title(),
+                'type': platform_data.get('type') or 'generic',
+                'doc_link': doc_link,
+                'body': body,
+            }
 
         return rv
 
-    def __write_wizards(self):
-        wizards = {}
-        for filename, base_path in self.__iter_wizard_files():
+    def __process_platform_index(self, platforms):
+        tree = {}
+
+        for uid, platform_data in platforms.iteritems():
+            if '.' in uid:
+                base, local_name = uid.split('.', 1)
+                if base not in platforms:
+                    print >> sys.stderr, 'Missing platform "%s" (referenced ' \
+                            'from %s)' % (base, uid)
+                    continue
+            else:
+                base = uid
+                local_name = '_self'
+            tree.setdefault(base, {})[local_name] = {
+                'details': uid.replace('.', '/') + '.json',
+                'name': platform_data['name'],
+                'type': platform_data['type'],
+                'doc_link': platform_data['doc_link'],
+            }
+
+        return tree
+
+    def __write_platforms(self):
+        platforms = {}
+        for filename, base_path in self.__iter_platform_files():
             with open(filename) as f:
                 data = json.load(f)
-                for uid, wizard in self.__write_wizard(data, base_path):
-                    del wizard['body']
-                    wizards[uid] = wizard
+                platforms.update(self.__process_platform(data, base_path))
 
-        fn = os.path.join(self.outdir, '_wizards', '_index.json')
+        index = self.__process_platform_index(platforms)
+
+        fn = os.path.join(self.outdir, '_platforms', '_index.json')
         try:
             os.makedirs(os.path.dirname(fn))
         except OSError:
             pass
+
         with open(fn, 'w') as f:
-            json.dump({'wizards': wizards}, f)
+            json.dump({'platforms': index}, f)
             f.write('\n')
+
+        for uid, platform_data in platforms.iteritems():
+            fn = os.path.join(self.outdir, '_platforms', *uid.split('.')) \
+                + '.json'
+            try:
+                os.makedirs(os.path.dirname(fn))
+            except OSError:
+                pass
+            with open(fn, 'w') as f:
+                json.dump(platform_data, f)
+                f.write('\n')
 
     def finish(self):
         super(SphinxBuilderMixin, self).finish()
-        self.__write_wizards()
+        self.__write_platforms()
 
 
 class SentryStandaloneHTMLBuilder(SphinxBuilderMixin, StandaloneHTMLBuilder):

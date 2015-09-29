@@ -631,6 +631,8 @@ class SphinxBuilderMixin(object):
         return u'\n\n'.join(rv)
 
     def __write_wizard(self, data, base_path):
+        rv = []
+
         for uid, framework_data in data.get('wizards', {}).iteritems():
             try:
                 body = self.__build_wizard_section(base_path,
@@ -650,20 +652,36 @@ class SphinxBuilderMixin(object):
                 doc_link = urljoin(EXTERNAL_DOCS_URL,
                                    posixpath.join(base_path, doc_link))
             with open(fn, 'w') as f:
-                json.dump({
+                data = {
                     'name': framework_data.get('name') or uid.title(),
                     'is_framework': framework_data.get('is_framework', False),
                     'doc_link': doc_link,
                     'client_lib': framework_data.get('client_lib'),
                     'body': body
-                }, f)
+                }
+                json.dump(data, f)
                 f.write('\n')
+                rv.append((uid, data))
+
+        return rv
 
     def __write_wizards(self):
+        wizards = {}
         for filename, base_path in self.__iter_wizard_files():
             with open(filename) as f:
                 data = json.load(f)
-                self.__write_wizard(data, base_path)
+                for uid, wizard in self.__write_wizard(data, base_path):
+                    del wizard['body']
+                    wizards[uid] = wizard
+
+        fn = os.path.join(self.outdir, '_wizards', '_index.json')
+        try:
+            os.makedirs(os.path.dirname(fn))
+        except OSError:
+            pass
+        with open(fn, 'w') as f:
+            json.dump({'wizards': wizards}, f)
+            f.write('\n')
 
     def finish(self):
         super(SphinxBuilderMixin, self).finish()

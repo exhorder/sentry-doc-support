@@ -589,7 +589,6 @@ class SphinxBuilderMixin(object):
             self.docsettings.initial_header_level = 2
             # indicate that we're building for the wizard fragements.
             # This changes url generation and more.
-            self.build_wizard_fragment = True
             # Embed pygments colors as inline styles
             original_args = self.highlighter.formatter_args
             self.highlighter.formatter_args = original_args.copy()
@@ -604,29 +603,32 @@ class SphinxBuilderMixin(object):
                 self.docwriter.assemble_parts()
                 rv.append(self.docwriter.parts['fragment'])
             finally:
-                self.build_wizard_fragment = False
                 self.highlighter.formatter_args = original_args
                 self.docsettings.initial_header_level = original_header_level
 
-        for snippet in snippets:
-            if '#' not in snippet:
-                snippet_path = snippet
-                section_name = None
-            else:
-                snippet_path, section_name = snippet.split('#', 1)
-            docname = posixpath.join(base_path, snippet_path)
-            if docname in trees:
-                doctree = trees.get(docname)
-            else:
-                doctree = self.env.get_and_resolve_doctree(docname, self)
-                trees[docname] = doctree
+        self.build_wizard_fragment = True
+        try:
+            for snippet in snippets:
+                if '#' not in snippet:
+                    snippet_path = snippet
+                    section_name = None
+                else:
+                    snippet_path, section_name = snippet.split('#', 1)
+                docname = posixpath.join(base_path, snippet_path)
+                if docname in trees:
+                    doctree = trees.get(docname)
+                else:
+                    doctree = self.env.get_and_resolve_doctree(docname, self)
+                    trees[docname] = doctree
 
-            if section_name is None:
-                _build_node(next(iter(doctree.traverse(section))))
-            else:
-                for sect in doctree.traverse(section):
-                    if section_name in sect['ids']:
-                        _build_node(sect)
+                if section_name is None:
+                    _build_node(next(iter(doctree.traverse(section))))
+                else:
+                    for sect in doctree.traverse(section):
+                        if section_name in sect['ids']:
+                            _build_node(sect)
+        finally:
+            self.build_wizard_fragment = False
 
         return u'\n\n'.join(rv)
 

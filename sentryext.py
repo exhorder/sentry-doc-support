@@ -512,12 +512,14 @@ def builder_inited(app):
         app.env.sentry_referenced_docs = {}
 
 
-def track_references(app, doctree):
+def track_references_and_orphan_doc(app, doctree):
     docname = app.env.temp_data['docname']
     rd = app.env.sentry_referenced_docs
     for toctreenode in doctree.traverse(addnodes.toctree):
         for e in toctreenode['entries']:
             rd.setdefault(str(e[1]), set()).add(docname)
+
+    app.env.metadata[docname]['orphan'] = True
 
 
 def is_referenced(docname, references):
@@ -564,7 +566,7 @@ class SphinxBuilderMixin(object):
             if is_referenced(docname, self.app.env.sentry_referenced_docs):
                 return super(SphinxBuilderMixin, self).write_doc(docname, doctree)
             else:
-                print 'skipping because unreferenced'
+                self.app.info('skipping because unreferenced')
         finally:
             self.docsettings.field_name_limit = original_field_limit
 
@@ -730,7 +732,7 @@ def setup(app):
     app.connect('builder-inited', builder_inited)
     app.connect('html-page-context', html_page_context)
     app.connect('source-read', preprocess_source)
-    app.connect('doctree-read', track_references)
+    app.connect('doctree-read', track_references_and_orphan_doc)
     app.add_builder(SentryStandaloneHTMLBuilder)
     app.add_builder(SentryDirectoryHTMLBuilder)
     app.add_config_value('sentry_doc_variant', None, 'env')

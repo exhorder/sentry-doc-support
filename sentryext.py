@@ -33,6 +33,21 @@ EXTERNAL_DOCS_URL = 'https://docs.getsentry.com/hosted/'
 API_BASE_URL = 'https://api.getsentry.com/'
 
 
+def find_config(path, root):
+    while 1:
+        if path is None or root is None:
+            break
+        if os.path.samefile(path, root):
+            break
+        if os.path.isfile(os.path.join(path, 'sentry-doc-config.json')):
+            with open(os.path.join(path, 'sentry-doc-config.json')) as f:
+                return json.load(f)
+        new_path = os.path.dirname(path)
+        if new_path == path:
+            break
+        path = new_path
+
+
 def iter_url_parts(path):
     last = 0
     for match in _url_var_re.finditer(path):
@@ -189,6 +204,13 @@ def html_page_context(app, pagename, templatename, context, doctree):
     context['render_sitemap'] = render_sitemap
 
     context['sentry_doc_variant'] = app.env.config.sentry_doc_variant
+
+    sentry_support = None
+    if doctree is not None:
+        cfg = find_config(doctree.attributes['source'], app.builder.srcdir)
+        if cfg is not None:
+            sentry_support = cfg.get('support_level')
+    context['sentry_support_level'] = sentry_support
 
 
 def extract_toc(fulltoc, selectors):
@@ -653,6 +675,7 @@ class SphinxBuilderMixin(object):
                 'name': platform_data.get('name') or uid.title(),
                 'type': platform_data.get('type') or 'generic',
                 'doc_link': doc_link,
+                'support_level': data.get('support_level'),
                 'body': body,
             }
 

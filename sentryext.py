@@ -746,6 +746,42 @@ class SentryDirectoryHTMLBuilder(SphinxBuilderMixin, DirectoryHTMLBuilder):
     name = 'sentrydirhtml'
 
 
+def collect_sitemap_link(app, pagename, templatename, context, doctree):
+    """
+    As each page is built, collect page names for the sitemap
+    """
+    app.sitemap_links.append(pagename + ".html")
+
+
+def build_sitemap(app, exception):
+    """
+    Generates the sitemap.xml from the collected links.
+    """
+    import xml.etree.ElementTree as ET
+
+    if exception is not None:
+        return
+
+    base_url = app.config['html_theme_options'].get('base_url', '')
+    if not base_url:
+        return
+
+    if not app.sitemap_links:
+        return
+
+    filename = app.outdir + "/sitemap.xml"
+    print("Generating sitemap.xml in %s" % filename)
+
+    root = ET.Element("urlset")
+    root.set("xmlns", "http://www.sitemaps.org/schemas/sitemap/0.9")
+
+    for link in app.sitemap_links:
+        url = ET.SubElement(root, "url")
+        ET.SubElement(url, "loc").text = '{}/{}'.format(base_url.rstrip('/'), link)
+
+    ET.ElementTree(root).write(filename)
+
+
 def setup(app):
     from sphinx.highlighting import lexers
     from pygments.lexers.web import PhpLexer
@@ -759,6 +795,10 @@ def setup(app):
     app.add_builder(SentryStandaloneHTMLBuilder)
     app.add_builder(SentryDirectoryHTMLBuilder)
     app.add_config_value('sentry_doc_variant', None, 'env')
+
+    app.connect('html-page-context', collect_sitemap_link)
+    app.connect('build-finished', build_sitemap)
+    app.sitemap_links = []
 
 
 def activate():

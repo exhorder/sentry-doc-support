@@ -31,6 +31,26 @@ _url_var_re = re.compile(r'\{(.*?)\}')
 
 EXTERNAL_DOCS_URL = 'https://docs.getsentry.com/hosted/'
 API_BASE_URL = 'https://api.getsentry.com/'
+SUPPORT_LEVELS = {
+    'community': {
+        'class': 'community',
+        'name': 'Community Supported',
+        'description': 'This is supported by the community',
+    },
+    'production': {
+        'class': 'production',
+        'name': 'Fully Supported',
+        'description': 'This is supported by the Sentry',
+    },
+    'in-development': {
+        'class': 'in-development',
+        'name': 'In Development',
+        'description': (
+            'This is supported by the Sentry '
+            'but currently under development.'
+        ),
+    }
+}
 
 
 def find_config(path, root):
@@ -210,7 +230,7 @@ def html_page_context(app, pagename, templatename, context, doctree):
         cfg = find_config(doctree.attributes['source'], app.builder.srcdir)
         if cfg is not None:
             sentry_support = cfg.get('support_level')
-    context['sentry_support_level'] = sentry_support
+    context['sentry_support_level'] = SUPPORT_LEVELS.get(sentry_support)
 
 
 def extract_toc(fulltoc, selectors):
@@ -460,6 +480,25 @@ class ApiScenarioDirective(Directive):
         return parse_rst(self.state, self.content_offset, doc)
 
 
+class SupportWarningDirective(Directive):
+    has_content = True
+    required_arguments = 0
+    optional_arguments = 0
+    final_argument_whitespace = False
+
+    def run(self):
+        doc = ViewList()
+
+        doc.append('', '')
+        doc.append('.. class:: sentry-support-block', '')
+        doc.append('', '')
+        for item in self.content:
+            doc.append(' ' + item, item)
+        doc.append('', '')
+
+        return parse_rst(self.state, self.content_offset, doc)
+
+
 class SentryDomain(Domain):
     name = 'sentry'
     label = 'Sentry'
@@ -470,6 +509,7 @@ class SentryDomain(Domain):
     directives = {
         'api-endpoint': ApiEndpointDirective,
         'api-scenario': ApiScenarioDirective,
+        'support-warning': SupportWarningDirective,
     }
 
 

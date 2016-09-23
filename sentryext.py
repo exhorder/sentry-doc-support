@@ -1,15 +1,19 @@
+from __future__ import absolute_import
+
 import re
 import os
 import sys
 import json
 import posixpath
-from itertools import chain
-from urlparse import urljoin
+
 from docutils import nodes
 from docutils.io import StringOutput
 from docutils.nodes import document, section
 from docutils.statemachine import ViewList
 from docutils.parsers.rst import directives
+from fnmatch import fnmatch
+from itertools import chain
+from urlparse import urljoin
 
 from sphinx import addnodes
 from sphinx.environment import url_re
@@ -18,6 +22,7 @@ from sphinx.directives import ObjectDescription
 from sphinx.util.osutil import relative_uri
 from sphinx.util.compat import Directive
 from sphinx.util.docfields import Field, TypedField
+from sphinx.util.pycompat import htmlescape
 from sphinx.builders.html import StandaloneHTMLBuilder, DirectoryHTMLBuilder
 
 
@@ -216,6 +221,18 @@ def html_page_context(app, pagename, templatename, context, doctree):
                                     split_toc=split_toc)
     context['build_toc'] = build_toc
 
+    def page_link(path, name):
+        uri = app.builder.get_relative_uri(pagename, path)
+        return (
+            '<a href="%s" class="reference internal%s">%s</a>'
+        ) % (
+            htmlescape(uri),
+            ' current' if pagename == path else '',
+            htmlescape(name),
+        )
+
+    context['page_link'] = page_link
+
     context['link_to_edition'] = make_link_builder(app, pagename)
 
     def render_sitemap():
@@ -236,10 +253,19 @@ def html_page_context(app, pagename, templatename, context, doctree):
 def extract_toc(fulltoc, selectors):
     entries = []
 
+    def matches(ref, selector):
+        if selector.endswith('/*'):
+            return ref.rsplit('/', 1)[0] == selector[:-2]
+        return ref == selector
+
     for refnode in fulltoc.traverse(nodes.reference):
         container = refnode.parent.parent
-        if any(cls[:4] == 'ref-' and cls[4:] in selectors
-               for cls in container['classes']):
+        if any(
+            cls[:4] == 'ref-' and any(
+                matches(cls[4:], s) for s in selectors
+            )
+            for cls in container['classes']
+        ):
             parent = container.parent
 
             new_parent = parent.deepcopy()

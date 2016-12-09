@@ -32,6 +32,7 @@ _http_path_re = re.compile(r'^\s*:http-path:\s+(.*?)$(?m)')
 _edition_re = re.compile(r'^(\s*)..\s+sentry:edition::\s*(.*?)$')
 _docedition_re = re.compile(r'^..\s+sentry:docedition::\s*(.*?)$')
 _url_var_re = re.compile(r'\{(.*?)\}')
+_var_re = re.compile(r'###([a-zA-Z0-9_]+)###')
 
 
 EXTERNAL_DOCS_URL = 'https://docs.getsentry.com/hosted/'
@@ -543,6 +544,7 @@ class SentryDomain(Domain):
 
 
 def preprocess_source(app, docname, source):
+    cfg = find_config(app.env.doc2path(docname), app.builder.srcdir)
     source_lines = source[0].splitlines()
 
     def _find_block(indent, lineno):
@@ -571,12 +573,19 @@ def preprocess_source(app, docname, source):
                 rv = [x[actual_indent:] for x in rv]
         return rv, lineno
 
+    def _expand_vars(line):
+        def _handle_match(match):
+            key = match.group(1)
+            return (cfg.get('vars') or {}).get(key) or u''
+        return _var_re.sub(_handle_match, line)
+
     result = []
 
     lineno = 0
     end = len(source_lines)
     while lineno < end:
         line = source_lines[lineno]
+        line = _expand_vars(line)
         match = _edition_re.match(line)
         if match is None:
             # Skip sentry:docedition.  We don't want those.

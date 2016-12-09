@@ -538,6 +538,9 @@ class SentryDomain(Domain):
         'support-warning': SupportWarningDirective,
     }
 
+    def merge_domaindata(self, docnames, otherdata):
+        pass
+
 
 def preprocess_source(app, docname, source):
     source_lines = source[0].splitlines()
@@ -608,6 +611,27 @@ def track_references_and_orphan_doc(app, doctree):
             rd.setdefault(str(e[1]), set()).add(docname)
 
     app.env.metadata[docname]['orphan'] = True
+
+
+def merge_info(app, env, docnames, other):
+    if not hasattr(other, 'sentry_referenced_docs'):
+        return
+    if not hasattr(env, 'sentry_referenced_docs'):
+        env.sentry_referenced_docs = {}
+    env.sentry_referenced_docs.update(other.sentry_referenced_docs)
+
+
+def purge_info(app, env, docname):
+    if not hasattr(env, 'sentry_referenced_docs'):
+        return
+    to_delete = []
+    for key, docs in env.sentry_referenced_docs.items():
+        if docname in docs:
+            docs.discard(docname)
+        if not docs:
+            to_delete.append(key)
+    for key in to_delete:
+        env.sentry_referenced_docs.pop(key, None)
 
 
 def is_referenced(docname, references):
@@ -861,10 +885,14 @@ def setup(app):
     app.add_builder(SentryStandaloneHTMLBuilder)
     app.add_builder(SentryDirectoryHTMLBuilder)
     app.add_config_value('sentry_doc_variant', None, 'env')
+    app.connect('env-purge-doc', purge_info)
+    app.connect('env-merge-info', merge_info)
 
     app.connect('html-page-context', collect_sitemap_link)
     app.connect('build-finished', build_sitemap)
     app.sitemap_links = []
+
+    return {'version': '1.0', 'parallel_read_safe': True}
 
 
 def activate():
